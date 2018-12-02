@@ -19,6 +19,8 @@ import time
 import six.moves.urllib.parse
 import six.moves.urllib.request
 
+KEYWORDS = ['food', 'refreshment', 'free', 'cookie', 'pizza']
+
 LOGGER = get_logger(__name__)
 
 MAX_HASHES_PER_FEED = 300
@@ -612,7 +614,8 @@ def  _config_templates_example(bot):
     options = Options(bot, feedreader, 'f=fl+adfglpsty')
     feed = feedreader.get_feed()
     item = feed['entries'][0]
-    return options.get_post('Feedname', item)
+    message, _ = options.get_post('Feedname', item)
+    return message
 
 
 def _db_check_if_table_exists(bot, feedname):
@@ -796,7 +799,8 @@ def _feed_templates_example(bot, feedname):
     options = Options(bot, feedreader, feedoptions)
     feed = feedreader.get_feed()
     item = feed['entries'][0]
-    return options.get_post(feedname, item)
+    message, _ = options.get_post(feedname, item)
+    return message
 
 
 def _feed_update(bot, feedreader, feedname, chatty):
@@ -818,9 +822,25 @@ def _feed_update(bot, feedreader, feedname, chatty):
             if new_item:
                 bot.memory['rss']['hashes'][feedname].append(hash)
                 _db_save_hash_to_database(bot, feedname, hash)
-            message = bot.memory['rss']['options'][feedname].get_post(feedname, item)
-            LOGGER.debug(message)
-            bot.say(message, channel)
+            message, found_matches = bot.memory['rss']['options'][feedname].get_post(feedname, item)
+            # only pass to bot if matches are found
+            if found_matches:
+                LOGGER.debug(message)
+                bot.say(message, channel)
+
+
+def find_keywords(saneitem):
+    # loop over relevant fields
+    relevant_fields = ['description', 'summary', 'title']
+    for field in relevant_fields:
+        # convert to lower case to be case-insensitive
+        _content = saneitem[field].lower()
+        for key in KEYWORDS:
+            if _content.find(key) != -1:
+                # found a match to our keyword
+                return True
+    # if program reaches here it means no match
+    return False
 
 
 def _hashes_read(bot, feedname):
@@ -1102,6 +1122,7 @@ def _rss_update(bot, args=[]):
             _feed_update(bot, feedreader, feedname, False)
 
 
+
 # Implementing an rss format handler
 class Options:
 
@@ -1193,6 +1214,8 @@ class Options:
         saneitem['summary'] = self._value_sanitize('summary', item)
         saneitem['title'] = self._value_sanitize('title', item)
 
+        found_keywords = find_keywords(saneitem)
+
         pubtime = ''
         if 'p' in self.get_output():
             pubtime = time.strftime('%Y-%m-%d %H:%M', item['published_parsed'])
@@ -1218,7 +1241,7 @@ class Options:
         for f in self.get_output():
             post += self.template_to_irc(templates[f]).format(legend.get(f, '')) + ' '
 
-        return post[:-1]
+        return post[:-1], found_keywords
 
     def get_templates(self):
         templates_list = list()
